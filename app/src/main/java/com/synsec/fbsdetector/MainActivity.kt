@@ -1,21 +1,22 @@
 package com.synsec.fbsdetector
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.os.Handler
+import android.telephony.CellIdentity
+import android.telephony.CellIdentityLte
+import android.telephony.CellIdentityNr
 import android.telephony.CellInfo
 import android.telephony.CellInfo.CONNECTION_PRIMARY_SERVING
-import android.telephony.SignalStrength
-import android.telephony.TelephonyCallback
-import android.telephony.TelephonyCallback.CellInfoListener
-import android.telephony.TelephonyCallback.SignalStrengthsListener
 import android.telephony.TelephonyManager
 import android.text.method.ScrollingMovementMethod
 import android.util.Log
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
+import androidx.appcompat.app.AppCompatActivity
 
 class MainActivity : AppCompatActivity() {
     private val telephonyManager by
@@ -23,51 +24,80 @@ class MainActivity : AppCompatActivity() {
 
     private val requestPermissionLauncher =
         registerForActivityResult(
-            ActivityResultContracts.RequestPermission()
-        ) { isGranted: Boolean ->
-            if (isGranted) {
-                // Permission is granted. Continue the action or workflow in your
-                // app.
-            } else {
-                // Explain to the user that the feature is unavailable because the
-                // feature requires a permission that the user has denied. At the
-                // same time, respect the user's decision. Don't link to system
-                // settings in an effort to convince the user to change their
-                // decision.
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { result ->
+            if (!result.all { it.value }) {
+                Toast.makeText(baseContext,
+                    "Requested permissions not granted", Toast.LENGTH_SHORT).show()
             }
         }
 
+    var prevPci = -1
+
+    fun getPci(cellIdentity : CellIdentity): Int {
+        when(cellIdentity) {
+            is CellIdentityLte -> {return cellIdentity.pci}
+            is CellIdentityNr -> {return cellIdentity.pci}
+        }
+        return -2
+    }
+
+    @SuppressLint("MissingPermission")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        requestPermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE)
-        requestPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-//        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-//        ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE)
-        findViewById<TextView>(R.id.CellInfoView).movementMethod = ScrollingMovementMethod()
-        val detectorListener: DetectorListener = object : DetectorListener() {
-            override fun onCellInfoChanged(cellInfo: MutableList<CellInfo>) {
-                var s = ""
-
-                cellInfo.forEach {
-                    s = if (it.cellConnectionStatus == CONNECTION_PRIMARY_SERVING) {
-                        Log.d("Current serving cell", it.toString())
-                        it.cellIdentity.toString() + "\n" + it.cellSignalStrength.dbm + "\n"
-                    } else {
-                        "No Cell Found\n"
+        requestPermissionLauncher.launch(arrayOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.READ_PHONE_STATE
+        ))
+        val cellInfoView = findViewById<TextView>(R.id.CellInfoView)
+        cellInfoView.movementMethod = ScrollingMovementMethod()
+        val looper = mainLooper
+        val handler = Handler(looper)
+        val runnable = object : Runnable {
+            override fun run() {
+                handler.postDelayed(this, 10000)
+                val callback: TelephonyManager.CellInfoCallback =
+                    object : TelephonyManager.CellInfoCallback() {
+                    override fun onCellInfo(cellInfo: MutableList<CellInfo>) {
+                        var s = "No Cell Found\n"
+                        cellInfo.forEach {
+                            if (it.cellConnectionStatus == CONNECTION_PRIMARY_SERVING) {
+                                Log.d("Current serving cell", it.toString())
+                                s = it.cellIdentity.toString() + "\n" +
+                                        it.cellSignalStrength.dbm + "\n" +
+                                        it.timestampMillis.toString()
+                                if (prevPci == -1) {
+                                    prevPci = getPci(it.cellIdentity)
+                                }
+                                else {
+                                    val currPci = getPci(it.cellIdentity)
+                                    if (currPci == -2) {
+                                        Toast.makeText(baseContext,
+                                            "Downgrade Detected!", Toast.LENGTH_SHORT).show()
+                                        prevPci = currPci
+                                    }
+                                    else if (currPci != prevPci) {
+                                        Toast.makeText(baseContext,
+                                            "Cell Change Detected!", Toast.LENGTH_SHORT).show()
+                                        prevPci = currPci
+                                    }
+                                }
+                            }
+                        }
+//                        Toast.makeText(baseContext,
+//                            "Cell Info Updated", Toast.LENGTH_SHORT).show()
+                        cellInfoView.text = s
                     }
-//                    s = it.toString() + it.cellConnectionStatus
                 }
-                findViewById<TextView>(R.id.CellInfoView).text = s
-            }
 
-            override fun onSignalStrengthsChanged(signalStrength: SignalStrength) {
-//                TODO("Not yet implemented")
+                telephonyManager.requestCellInfoUpdate(mainExecutor, callback)
+
             }
         }
-        telephonyManager.registerTelephonyCallback(mainExecutor, detectorListener)
+
+        handler.post(runnable)
     }
 
-    abstract class DetectorListener : TelephonyCallback(), CellInfoListener, SignalStrengthsListener
 
 }
