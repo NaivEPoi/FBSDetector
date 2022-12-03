@@ -47,9 +47,10 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         requestPermissionLauncher.launch(arrayOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.READ_PHONE_STATE
+            Manifest.permission.ACCESS_FINE_LOCATION
+//            Manifest.permission.READ_PHONE_STATE
         ))
+
         val cellInfoView = findViewById<TextView>(R.id.CellInfoView)
         cellInfoView.movementMethod = ScrollingMovementMethod()
         val looper = mainLooper
@@ -90,14 +91,9 @@ class MainActivity : AppCompatActivity() {
                         cellInfoView.text = s
                     }
                 }
-
                 telephonyManager.requestCellInfoUpdate(mainExecutor, callback)
-
             }
         }
-
         handler.post(runnable)
     }
-
-
 }
